@@ -1,6 +1,6 @@
 # Google Text to Speech &amp; Speech to Text API
 
-<img src="https://github.com/souravmsh/google-speech-recognition/blob/main/preview.png"/>
+<img src="https://github.com/souravmsh/google-speech/blob/main/preview.png"/>
 
 Follow some steps:- 
 
