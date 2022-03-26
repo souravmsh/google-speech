@@ -1,0 +1,78 @@
+<button id="record">Record</button>
+<button id="stop">Stop</button>
+<div id="loader">Google Speech Processing...</div>
+<br/>
+<textarea id="transcribe"></textarea>
+<script>
+  
+  const googleAPI    = "./GoogleTranscribe.php";
+  const stopButton   = document.getElementById('stop');
+  const recordButton = document.getElementById('record'); 
+  const loader       = document.getElementById('loader'); 
+  const transcribe   = document.getElementById('transcribe');
+
+  stopButton.style.display = "none";
+  transcribe.style.display = "none";
+  loader.style.display = "none";
+
+  const handleSuccess = function(stream) {
+    // const options = {mimeType: 'audio/webm', codecs: 'opus'};
+    const options = {};
+    const chunks = [];
+    const mediaRecorder = new MediaRecorder(stream, options);
+
+    mediaRecorder.addEventListener('dataavailable', function(e) {
+      if (e.data.size > 0) chunks.push(e.data);
+    });
+
+    mediaRecorder.addEventListener('stop', async function() {
+      const blob = new Blob(chunks, { 'type' : 'audio/webm; codecs=opus' });
+      console.log('blob', blob);
+      loader.style.display = "block";
+      // downloadLink.href = URL.createObjectURL(blob); 
+      if (typeof googleAPI !== undefined) {
+        transcribe.value = "";
+        await fetch(googleAPI, {
+          method: "post",
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: blob
+        })
+        .then(response => response.json())
+        .then(response => {  
+          if (response.status) {
+            transcribe.value = response.data.transcript;
+          } else {
+            console.log('Something went wrong!', response);
+          }
+
+          loader.style.display = "none";
+          transcribe.style.display = "block";
+        })
+        .catch(err => {
+          console.log('Something went wrong!', err);
+          loader.style.display = "none";
+          transcribe.style.display = "block";
+        });
+      }
+
+    });
+
+    stopButton.addEventListener('click', function() {
+      mediaRecorder.stop();
+      recordButton.style.display = "block";
+      stopButton.style.display = "none";
+    });
+
+    recordButton.addEventListener('click', function() {
+      mediaRecorder.start();
+      recordButton.style.display = "none";
+      stopButton.style.display = "block";
+    });
+  };
+
+  navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(handleSuccess);
+</script>

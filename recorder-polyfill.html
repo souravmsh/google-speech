@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Media Recorder Polyfill</title>
+    <link rel="icon" href="./favicon.ico" />
+    <meta content="width=device-width" name="viewport" />
+    <meta name="theme-color" content="#00e5d2" />  
+
+    <style type="text/css">
+    .ck-controls {padding:.5rem 0}
+    .ck-controls [disabled] {cursor:not-allowed;}
+    .ck-controls canvas{display:block;width:100%;height:60px;}
+    .ck-controls button{font-size:1rem;background:#08c;text-align:center;color:white;border:0;transition:all .2s;padding:.5rem}
+    .ck-controls .buttons {display:flex;float:right;margin-top:10px;flex-direction: row;justify-content: space-between;}
+    .ck-controls button:hover, 
+    .ck-controls button:focus{box-shadow:inset 0 0 10px rgba(255,255,255,1);background:#0ae}
+    .ck-controls button.play{background: #00f;}
+    .ck-controls button.pause{background: #ee9c00;}
+    .ck-controls button.stop{background: #f00;}
+    .ck-controls button:active
+    {box-shadow:inset 0 0 20px rgba(0,0,0,0.5);transform:translateY(2px)}
+    .ck-controls article{display:block}
+    .ck-controls audio{width:100%;display:block;margin:1rem auto .5rem} 
+    .ck-controls textarea{width:100%;font-size:1.2rem;margin:.5rem 0}
+    .ck-controls .ck-loader {display: none;position: relative;width: 100%;height: 3px;background-color: #fdba2c;}
+    .ck-controls .bar {content: "";display: inline;position: absolute;width: 0;height: 100%;left: 50%;text-align: center;}
+    .ck-controls .bar:nth-child(1) {background-color: #da4733;-webkit-animation: loading 3s linear infinite;animation: loading 3s linear infinite;}
+    .ck-controls .bar:nth-child(2) {background-color: #3b78e7;-webkit-animation: loading 3s linear 1s infinite;animation: loading 3s linear 1s infinite;}
+    .ck-controls .bar:nth-child(3) {background-color: #fdba2c;-webkit-animation: loading 3s linear 2s infinite;animation: loading 3s linear 2s infinite;}
+    @-webkit-keyframes loading {from {left: 50%;width: 0;z-index:100;}33.3333% {left: 0;width: 100%;z-index: 10;}to {left: 0;width: 100%;}}
+    @keyframes loading {from {left: 50%;width: 0;z-index:100;}33.3333% {left: 0;width: 100%;z-index: 10;}to {left: 0;width: 100%;}}
+    </style>
+</head>
+<body>
+
+    <section class="ck-controls">
+      <canvas class="visualizer"></canvas>
+      <div class="ck-loader">
+        <div class="bar"></div>
+        <div class="bar"></div>
+        <div class="bar"></div>
+      </div>
+      <div class="buttons">
+        <button class="record" disabled>Record</button>
+        <button class="sec" disabled>1s</button>
+        <button class="pause" disabled>Pause</button>
+        <button class="resume" disabled>Resume</button>
+        <button class="stop" disabled>Stop</button>
+        <button class="request" disabled>Request</button>
+        <button class="play" >Play</button>
+      </div>
+      <textarea class="text"></textarea>
+      <article class="formats"></article>
+      <article class="list"></article>
+    </section>
+
+
+    <script>
+        (function () {
+            var showInfo = true,
+                googleSpeechAPI = './GoogleTranscribe.php',
+                recorder,
+                ckControl,
+                recordButton,
+                secondButton,
+                pauseButton,
+                resumeButton,
+                stopButton,
+                playButton,
+                requestButton,
+                textPreview,
+                buttons = ["start", "stop", "pause", "resume"],
+                formats = ["audio/webm", "audio/ogg", "audio/wav"],
+                audioCtx,
+                canvasCtx,
+                visualizer,
+                loader,
+                list,
+                kb = 1024,
+                bit = 1 << 20;
+
+            function size(e) {
+                var r,
+                    $ = Math.abs(e);
+                return $ >= bit ? ((r = "MB"), (e /= bit)) : $ >= kb ? ((r = "KB"), (e /= kb)) : (r = "B"), e.toFixed(0).replace(/(?:\.0*|(\.[^0]+)0+)$/, "$1") + " " + r;
+            }
+            function record(e) {
+                (list.innerHTML = ""),
+                navigator.mediaDevices.getUserMedia({ audio: !0 }).then(function (r) {
+                    (recorder = new MediaRecorder(r));
+                    buttons.forEach(function (e) {
+                        recorder.addEventListener(e, info.bind(null, e));
+                    });
+                    recorder.addEventListener("dataavailable", dataAbailable);
+                    recorder.addEventListener("dataavailable", callApiWithBlobData);
+                    "full" === e ? recorder.start() : recorder.start(1e3);
+                    visualize(r);
+                }),
+                secondButton.blur(),
+                recordButton.blur(); 
+            }
+            function stop(e) {
+                recorder.stop(), recorder.stream.getTracks()[0].stop(), stopButton.blur();
+            }
+            function pause() {
+                recorder.pause(), pauseButton.blur();
+            }
+            function resume() {
+                recorder.resume(), resumeButton.blur();
+            }
+            function request() {
+                recorder.requestData(), requestButton.blur();
+            }
+            function dataAbailable(e) {
+                if (showInfo) {
+                    var li = document.createElement("li"),
+                        $ = document.createElement("strong");
+                        ($.innerText = "dataavailable: "), 
+                        li.appendChild($);
+                    var span = document.createElement("span");
+                        (span.innerText = e.data.type + ", " + size(e.data.size)), 
+                        li.appendChild(span);
+                    var audio = document.createElement("audio");
+                        (audio.controls = true), 
+                        (audio.src = URL.createObjectURL(e.data)), 
+                        li.appendChild(audio), 
+                        list.appendChild(li);
+                        audio.play();
+                }
+            }
+            function info(e) {
+                if (showInfo) {
+                    var li = document.createElement("li");
+                    (li.innerHTML = "<strong>" + e + ": </strong>" + recorder.state),
+                        "start" === e && (li.innerHTML += ", " + recorder.mimeType),
+                    list.appendChild(li);
+                }
+                "recording" === recorder.state
+                ? (
+                    (secondButton.disabled = !0),
+                    (recordButton.disabled = !0),
+                    (requestButton.disabled = !1),
+                    (resumeButton.disabled = !0),
+                    (pauseButton.disabled = !1),
+                    (stopButton.disabled = !1)
+                )
+                : "paused" === recorder.state
+                ? (
+                    (secondButton.disabled = !0), 
+                    (recordButton.disabled = !0), 
+                    (requestButton.disabled = !1), 
+                    (resumeButton.disabled = !1), 
+                    (pauseButton.disabled = !0), 
+                    (stopButton.disabled = !1)
+                )
+                : "inactive" === recorder.state && (
+                    (secondButton.disabled = !1), 
+                    (recordButton.disabled = !1), 
+                    (requestButton.disabled = !0), 
+                    (resumeButton.disabled = !0), 
+                    (pauseButton.disabled = !0), 
+                    (stopButton.disabled = !0)
+                );
+            }
+            function visualize(stream) {
+              if(!audioCtx) {
+                audioCtx = new AudioContext();
+              }
+
+              const source = audioCtx.createMediaStreamSource(stream);
+
+              const analyser = audioCtx.createAnalyser();
+              analyser.fftSize = 2048;
+              const bufferLength = analyser.frequencyBinCount;
+              const dataArray = new Uint8Array(bufferLength);
+
+              source.connect(analyser);
+
+              draw()
+              function draw() {
+                const WIDTH = visualizer.width
+                const HEIGHT = visualizer.height;
+
+                requestAnimationFrame(draw);
+
+                analyser.getByteTimeDomainData(dataArray);
+
+                canvasCtx.fillStyle = 'rgb(200, 200, 200)';
+                canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                canvasCtx.lineWidth = 2;
+                canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
+
+                canvasCtx.beginPath();
+
+                let sliceWidth = WIDTH * 1.0 / bufferLength;
+                let x = 0;
+
+
+                for(let i = 0; i < bufferLength; i++) {
+
+                  let v = dataArray[i] / 128.0;
+                  let y = v * HEIGHT/2;
+
+                  if(i === 0) {
+                    canvasCtx.moveTo(x, y);
+                  } else {
+                    canvasCtx.lineTo(x, y);
+                  }
+
+                  x += sliceWidth;
+                }
+
+                canvasCtx.lineTo(visualizer.width, visualizer.height/2);
+                canvasCtx.stroke();
+
+              }
+            }
+            async function callApiWithBlobData(e) {
+                loader.style.display = "block";
+                var data = e.data;  
+                await fetch(googleSpeechAPI, {
+                  method: "post",
+                  headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                  },
+                  body: data
+                })
+                .then(response => response.json())
+                .then(response => {  
+                  if (response.status) {
+                    textPreview.value = response.data.transcript; 
+                  } else {
+                    console.log('Something went wrong!', response);
+                  }
+                    loader.style.display = "none";
+                })
+                .catch(err => {
+                  loader.style.display = 'none';
+                  console.log('Server error :  ', e);
+                }); 
+            }
+            function play(){
+              var text = textPreview.value;
+              if (text.value !== '') {
+                loader.style.display = 'block';
+                fetch(googleSpeechAPI, {
+                  method: "post",
+                  headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({text:text})
+                })
+                .then(response => response.json())
+                .then(response => {  
+                  if (response.status) {
+                    const audio = document.createElement('audio');
+                    audio.controls = false; 
+                    audio.src = response.data;
+                    audio.play(); 
+                    ckControl.appendChild(audio);
+                  } else {
+                    console.log('Something went wrong!', response);
+                  }
+                  loader.style.display = 'none';
+                })
+                .catch(err => {
+                  console.log('Something went wrong!', err);
+                });
+              }
+            }
+            (ckControl = document.querySelector(".ck-controls")),
+            (list = document.querySelector(".ck-controls .list")),
+            (secondButton = document.querySelector(".ck-controls .sec")),
+            (recordButton = document.querySelector(".ck-controls .record")),
+            (requestButton = document.querySelector(".ck-controls .request")),
+            (resumeButton = document.querySelector(".ck-controls .resume")),
+            (pauseButton = document.querySelector(".ck-controls .pause")),
+            (stopButton = document.querySelector(".ck-controls .stop")),
+            (playButton = document.querySelector(".ck-controls .play")),
+            (textPreview  = document.querySelector(".ck-controls .text")),
+            (visualizer  = document.querySelector(".ck-controls .visualizer")),
+            (canvasCtx = visualizer.getContext("2d")),
+            (loader  = document.querySelector(".ck-controls .ck-loader")),
+            MediaRecorder.notSupported
+                ? ((list.style.display = "none"),
+                  (document.querySelector(".ck-controls").style.display = "none"),
+                  (document.querySelector(".ck-controls .formats").style.display = "none"),
+                  (document.querySelector(".ck-controls .text").style.display = "none"),
+                  (document.querySelector(".ck-controls .support").style.display = "block"))
+                : ((document.querySelector(".ck-controls .formats").innerText =
+                        showInfo ? ("Format: " + formats.filter(function (e) {
+                            return MediaRecorder.isTypeSupported(e);
+                        }).join(", ")) : null
+                  ),
+                  secondButton.addEventListener("click", record.bind(null, "parts")),
+                  recordButton.addEventListener("click", record.bind(null, "full")),
+                  requestButton.addEventListener("click", request),
+                  resumeButton.addEventListener("click", resume),
+                  pauseButton.addEventListener("click", pause),
+                  stopButton.addEventListener("click", stop),
+                  playButton.addEventListener("click", play),
+                  (secondButton.disabled = !1),
+                  (recordButton.disabled = !1));
+        })(); 
+    </script>
+</body>
+</html>
+

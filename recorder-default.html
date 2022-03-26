@@ -1,0 +1,266 @@
+<style type="text/css">
+.ck-main-controls {padding:.5rem 0}
+.ck-main-controls canvas{display:block}
+.ck-main-controls button{font-size:1rem;background:#08c;text-align:center;color:white;border:0;transition:all .2s;padding:.5rem}
+.ck-main-controls .ck-play-buttons {display:flex;float:right;margin-top:10px;flex-direction: row;justify-content: space-between;}
+.ck-main-controls button:hover, 
+.ck-main-controls button:focus{box-shadow:inset 0 0 10px rgba(255,255,255,1);background:#0ae}
+.ck-main-controls button.ck-play{background: #00f;}
+.ck-main-controls button.ck-stop{background: #f00;}
+.ck-main-controls button:active{box-shadow:inset 0 0 20px rgba(0,0,0,0.5);transform:translateY(2px)}
+.ck-main-controls .sound-clips{flex:1;overflow:auto}
+.ck-main-controls section,
+.ck-main-controls article{display:block}
+.ck-main-controls audio{width:100%;display:block;margin:1rem auto .5rem} 
+.ck-main-controls textarea{width:100%;font-size:1.2rem;margin:.5rem 0}
+.ck-main-controls .ck-loader {position: relative;width: 100%;height: 3px;background-color: #fdba2c;}
+.ck-main-controls .ck-bar {content: "";display: inline;position: absolute;width: 0;height: 100%;left: 50%;text-align: center;}
+.ck-main-controls .ck-bar:nth-child(1) {background-color: #da4733;-webkit-animation: loading 3s linear infinite;animation: loading 3s linear infinite;}
+.ck-main-controls .ck-bar:nth-child(2) {background-color: #3b78e7;-webkit-animation: loading 3s linear 1s infinite;animation: loading 3s linear 1s infinite;}
+.ck-main-controls .ck-bar:nth-child(3) {background-color: #fdba2c;-webkit-animation: loading 3s linear 2s infinite;animation: loading 3s linear 2s infinite;}
+@-webkit-keyframes loading {from {left: 50%;width: 0;z-index:100;}33.3333% {left: 0;width: 100%;z-index: 10;}to {left: 0;width: 100%;}}
+@keyframes loading {from {left: 50%;width: 0;z-index:100;}33.3333% {left: 0;width: 100%;z-index: 10;}to {left: 0;width: 100%;}}
+</style>
+
+<section class="ck-main-controls">
+  <canvas class="ck-visualizer" height="60px"></canvas>
+  <div class="ck-loader">
+    <div class="ck-bar"></div>
+    <div class="ck-bar"></div>
+    <div class="ck-bar"></div>
+  </div>
+  <div class="ck-play-buttons">
+    <button class="ck-record">Record</button>
+    <button class="ck-stop ">Stop</button>
+    <button class="ck-play">Play</button>
+  </div>
+  <article class="ck-sound-clips"></article>
+  <textarea class="ck-speech-to-text-preivew"></textarea>
+</section>
+
+
+
+<script type="text/javascript">
+// set up basic variables for app
+const allowPlayer = true;
+const googleSpeechAPI = `./GoogleTranscribe.php`;
+
+const textPreview = document.querySelector('.ck-speech-to-text-preivew');
+const mainSection = document.querySelector('.ck-main-controls');
+const canvas      = document.querySelector('.ck-main-controls .ck-visualizer');
+const record      = document.querySelector('.ck-main-controls .ck-record');
+const play        = document.querySelector('.ck-main-controls .ck-play');
+const stop        = document.querySelector('.ck-main-controls .ck-stop');
+const loader      = document.querySelector('.ck-main-controls .ck-loader');
+const soundClips  = document.querySelector('.ck-main-controls .ck-sound-clips');
+
+// disable stop button while not recording
+stop.disabled = true;
+stop.style.display   = 'none';
+play.style.display = 'none';
+loader.style.display = 'none';
+
+// visualiser setup - create web audio api context and canvas
+let audioCtx;
+const canvasCtx = canvas.getContext("2d");
+
+//main block for doing the audio recording
+if (navigator.mediaDevices.getUserMedia) {
+
+  const constraints = { audio: true, video: false };
+  let chunks = [];
+
+  let onSuccess = function(stream) {
+    const mediaRecorder = new MediaRecorder(stream);
+
+    visualize(stream);
+
+    record.onclick = function() {
+      mediaRecorder.start();
+      // console.log(mediaRecorder.state, "recorder started");
+      record.style.background = "red";
+
+      stop.disabled = false;
+      stop.style.display = 'block';
+      record.disabled = true;
+      record.style.display = 'none';
+    }
+
+    stop.onclick = function() {
+      setTimeout(function(){
+        mediaRecorder.stop();
+      }, 2000);
+      record.style.background = "";
+      record.style.color = "";
+      stop.disabled = true;
+      stop.style.display = 'none';
+      record.disabled = false;
+      record.style.display = 'block';
+    }
+
+    mediaRecorder.onstop = async function(e) {
+
+      const blob = new Blob(chunks, { 'type' : 'audio/webm; codecs=opus' });
+
+      console.log('blob', blob)
+      
+      chunks = [];
+
+      if (allowPlayer) {
+        const audio = document.createElement('audio');
+        audio.controls = false;
+        const audioURL = window.URL.createObjectURL(blob);
+        audio.src = audioURL;
+        audio.play(); 
+
+        soundClips.innerHTML='';
+        soundClips.appendChild(audio);
+      }
+ 
+      if (typeof googleSpeechAPI !== undefined) {
+        loader.style.display = 'block';
+        textPreview.value = "";
+        await fetch(googleSpeechAPI, {
+          method: "post",
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: blob
+        })
+        .then(response => response.json())
+        .then(response => {  
+          if (response.status) {
+            textPreview.value = response.data.transcript;
+            play.style.display = 'block';
+          } else {
+            console.log('Something went wrong!', response);
+          }
+          loader.style.display = 'none';
+        })
+        .catch(err => {
+          console.log('Something went wrong!', err);
+        });
+      }
+    }
+
+    mediaRecorder.ondataavailable = function(e) {
+      chunks.push(e.data);
+    }
+  }
+
+  let onError = function(err) {
+    console.log('The following error occured: ' + err);
+  }
+
+  navigator.mediaDevices.getUserMedia(constraints).then(onSuccess, onError);
+
+} else {
+   console.log('getUserMedia not supported on your browser!');
+}
+
+function visualize(stream) {
+  if(!audioCtx) {
+    audioCtx = new AudioContext();
+  }
+
+  const source = audioCtx.createMediaStreamSource(stream);
+
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+
+  source.connect(analyser);
+  //analyser.connect(audioCtx.destination);
+
+  draw()
+
+  function draw() {
+    const WIDTH = canvas.width
+    const HEIGHT = canvas.height;
+
+    requestAnimationFrame(draw);
+
+    analyser.getByteTimeDomainData(dataArray);
+
+    canvasCtx.fillStyle = 'rgb(200, 200, 200)';
+    canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    canvasCtx.lineWidth = 2;
+    canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
+
+    canvasCtx.beginPath();
+
+    let sliceWidth = WIDTH * 1.0 / bufferLength;
+    let x = 0;
+
+
+    for(let i = 0; i < bufferLength; i++) {
+
+      let v = dataArray[i] / 128.0;
+      let y = v * HEIGHT/2;
+
+      if(i === 0) {
+        canvasCtx.moveTo(x, y);
+      } else {
+        canvasCtx.lineTo(x, y);
+      }
+
+      x += sliceWidth;
+    }
+
+    canvasCtx.lineTo(canvas.width, canvas.height/2);
+    canvasCtx.stroke();
+
+  }
+}
+
+window.onresize = function() {
+  canvas.width = mainSection.offsetWidth;
+}
+
+
+// play button
+textPreview.addEventListener('keyup', function(){
+  if (this.value.length > 0) {
+    play.style.display = 'block';
+  } else {
+    play.style.display = 'none';
+  }
+});
+
+play.addEventListener('click', function(){
+  var text = textPreview.value;
+  if (text.value !== '') {
+    loader.style.display = 'block';
+    fetch(googleSpeechAPI, {
+      method: "post",
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({text:text})
+    })
+    .then(response => response.json())
+    .then(response => {  
+      if (response.status) {
+        const audio = document.createElement('audio');
+        audio.controls = false; 
+        audio.src = response.data;
+        audio.play(); 
+        soundClips.innerHTML='';
+        soundClips.appendChild(audio);
+      } else {
+        console.log('Something went wrong!', response);
+      }
+      loader.style.display = 'none';
+    })
+    .catch(err => {
+      console.log('Something went wrong!', err);
+    });
+  }
+});
+
+window.onresize();
+</script>
